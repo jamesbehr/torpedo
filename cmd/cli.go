@@ -4,8 +4,7 @@ import (
 	"os"
 
 	"github.com/alecthomas/kong"
-	"github.com/jamesbehr/torpedo/filesystem"
-	"github.com/jamesbehr/torpedo/root"
+	"github.com/jamesbehr/torpedo/scan"
 	"github.com/jamesbehr/torpedo/tmux"
 )
 
@@ -27,12 +26,17 @@ func Execute() {
 		ctx.FatalIfErrorf(err)
 	}
 
-	rt, err := root.New(filesystem.DirFS(pwd))
+	entries, err := scan.TraverseParents(pwd)
 	if err != nil {
 		ctx.FatalIfErrorf(err)
 	}
 
-	ctx.Bind(rt)
+	info, err := scan.Discover(entries)
+	if err != nil {
+		ctx.FatalIfErrorf(err)
+	}
+
+	ctx.Bind(info)
 	ctx.Bind(&tmux.Client{})
 
 	ctx.FatalIfErrorf(ctx.Run())

@@ -7,7 +7,7 @@ import (
 
 	"github.com/jamesbehr/torpedo/editor"
 	"github.com/jamesbehr/torpedo/picker"
-	"github.com/jamesbehr/torpedo/root"
+	"github.com/jamesbehr/torpedo/scan"
 	"github.com/jamesbehr/torpedo/tmux"
 	"github.com/jamesbehr/torpedo/workspace"
 )
@@ -16,8 +16,12 @@ type WorkspaceNewCmd struct {
 	Name string `arg:""`
 }
 
-func (cmd *WorkspaceNewCmd) Run(rt *root.Service) error {
-	dir, err := rt.WorkspaceDir(cmd.Name)
+func (cmd *WorkspaceNewCmd) Run(info *scan.Info) error {
+	if err := info.ValidateIsRoot(); err != nil {
+		return err
+	}
+
+	dir, err := info.Root.WorkspaceDir(cmd.Name)
 	if err != nil {
 		return err
 	}
@@ -26,22 +30,26 @@ func (cmd *WorkspaceNewCmd) Run(rt *root.Service) error {
 		return err
 	}
 
-	if err := rt.AddWorkspace(cmd.Name); err != nil {
+	if err := info.Root.AddWorkspace(cmd.Name); err != nil {
 		return err
 	}
 
-	return rt.SaveConfig()
+	return info.Root.SaveConfig()
 }
 
 type WorkspaceJumplistEditCmd struct{}
 
-func (cmd *WorkspaceJumplistEditCmd) Run(rt *root.Service) error {
+func (cmd *WorkspaceJumplistEditCmd) Run(info *scan.Info) error {
+	if err := info.ValidateIsRoot(); err != nil {
+		return err
+	}
+
 	f, err := os.CreateTemp("", "torpedo.jumplist*")
 	if err != nil {
 		return err
 	}
 
-	if err := rt.WriteJumplist(f); err != nil {
+	if err := info.Root.WriteJumplist(f); err != nil {
 		return err
 	}
 
@@ -53,19 +61,23 @@ func (cmd *WorkspaceJumplistEditCmd) Run(rt *root.Service) error {
 		return err
 	}
 
-	if err := rt.ReadJumplist(f); err != nil {
+	if err := info.Root.ReadJumplist(f); err != nil {
 		return err
 	}
 
-	return rt.SaveConfig()
+	return info.Root.SaveConfig()
 }
 
 type WorkspaceJumplistGetCmd struct {
 	Index int `arg:""`
 }
 
-func (cmd *WorkspaceJumplistGetCmd) Run(rt *root.Service) error {
-	wsc, err := rt.JumplistItem(cmd.Index)
+func (cmd *WorkspaceJumplistGetCmd) Run(info *scan.Info) error {
+	if err := info.ValidateIsRoot(); err != nil {
+		return err
+	}
+
+	wsc, err := info.Root.JumplistItem(cmd.Index)
 	if err != nil {
 		return err
 	}
@@ -79,13 +91,17 @@ type WorkspaceJumplistGotoCmd struct {
 	Index int `arg:""`
 }
 
-func (cmd *WorkspaceJumplistGotoCmd) Run(rt *root.Service, t *tmux.Client) error {
-	wsc, err := rt.JumplistItem(cmd.Index)
+func (cmd *WorkspaceJumplistGotoCmd) Run(info *scan.Info, t *tmux.Client) error {
+	if err := info.ValidateIsRoot(); err != nil {
+		return err
+	}
+
+	wsc, err := info.Root.JumplistItem(cmd.Index)
 	if err != nil {
 		return err
 	}
 
-	dir, err := rt.WorkspaceDir(wsc.Name)
+	dir, err := info.Root.WorkspaceDir(wsc.Name)
 	if err != nil {
 		return err
 	}
@@ -106,9 +122,13 @@ type WorkspaceJumplistCmd struct {
 
 type WorkspacePickCmd struct{}
 
-func (cmd *WorkspacePickCmd) Run(rt *root.Service, t *tmux.Client) error {
+func (cmd *WorkspacePickCmd) Run(info *scan.Info, t *tmux.Client) error {
+	if err := info.ValidateIsRoot(); err != nil {
+		return err
+	}
+
 	items := []string{}
-	for _, ws := range rt.Workspaces() {
+	for _, ws := range info.Root.Workspaces() {
 		items = append(items, ws.Name)
 	}
 
@@ -117,7 +137,7 @@ func (cmd *WorkspacePickCmd) Run(rt *root.Service, t *tmux.Client) error {
 		return err
 	}
 
-	dir, err := rt.WorkspaceDir(choice)
+	dir, err := info.Root.WorkspaceDir(choice)
 	if err != nil {
 		return err
 	}

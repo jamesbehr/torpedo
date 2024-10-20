@@ -24,12 +24,12 @@ type Service struct {
 	Config Configuration
 }
 
-const configName = ".torpedo.json"
+const ConfigName = ".torpedo.json"
 
 func New(fs filesystem.FS) (*Service, error) {
 	var cfg Configuration
 
-	f, err := fs.Open(configName)
+	f, err := fs.Open(ConfigName)
 	if err != nil {
 		return nil, fmt.Errorf("root: unable to open config file: %w", err)
 	}
@@ -50,7 +50,7 @@ func New(fs filesystem.FS) (*Service, error) {
 }
 
 func (svc *Service) SaveConfig() error {
-	f, err := svc.FS.Create(configName)
+	f, err := svc.FS.Create(ConfigName)
 	if err != nil {
 		return fmt.Errorf("root: could not open config file: %w", err)
 	}

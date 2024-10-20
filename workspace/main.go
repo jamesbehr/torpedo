@@ -16,7 +16,7 @@ type Service struct {
 	Config Configuration
 }
 
-const configDir = ".torpedo"
+const ConfigDir = ".torpedo"
 const configName = ".torpedo/workspace.json"
 
 func New(fs filesystem.FS) (*Service, error) {
@@ -48,7 +48,7 @@ func Initialize(fs filesystem.FS) (*Service, error) {
 		Config: Configuration{},
 	}
 
-	if err := svc.FS.MkdirAll(configDir, 0777); err != nil {
+	if err := svc.FS.MkdirAll(ConfigDir, 0777); err != nil {
 		return nil, fmt.Errorf("workspace: failed to create workspace: %w", err)
 	}
 

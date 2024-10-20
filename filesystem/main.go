@@ -13,6 +13,7 @@ type File interface {
 }
 
 type FS interface {
+	ReadDir(string) ([]fs.DirEntry, error)
 	Path(string) (string, error)
 	Sub(string) (FS, error)
 	ReadFile(string) ([]byte, error)
@@ -87,6 +88,23 @@ func (fsys DirFS) ReadFile(name string) ([]byte, error) {
 	}
 
 	return b, nil
+}
+
+func (fsys DirFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	if !fs.ValidPath(name) {
+		return nil, &os.PathError{Op: "readdir", Path: name, Err: os.ErrInvalid}
+	}
+
+	children, err := os.ReadDir(filepath.Join(string(fsys), name))
+	if err != nil {
+		if e, ok := err.(*os.PathError); ok {
+			e.Path = name
+		}
+
+		return nil, err
+	}
+
+	return children, nil
 }
 
 func (fsys DirFS) Create(name string) (File, error) {
