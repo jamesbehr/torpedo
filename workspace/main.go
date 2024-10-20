@@ -1,11 +1,11 @@
 package workspace
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/jamesbehr/torpedo/filesystem"
 	"github.com/jamesbehr/torpedo/tmux"
-	"github.com/sblinch/kdl-go"
 )
 
 type Configuration struct {
@@ -17,7 +17,7 @@ type Service struct {
 }
 
 const configDir = ".torpedo"
-const configName = ".torpedo/workspace.kdl"
+const configName = ".torpedo/workspace.json"
 
 func New(fs filesystem.FS) (*Service, error) {
 	var cfg Configuration
@@ -29,7 +29,7 @@ func New(fs filesystem.FS) (*Service, error) {
 
 	defer f.Close()
 
-	dec := kdl.NewDecoder(f)
+	dec := json.NewDecoder(f)
 	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("root: unable to deserialize config: %w", err)
 	}
@@ -57,7 +57,9 @@ func Initialize(fs filesystem.FS) (*Service, error) {
 		return nil, fmt.Errorf("workspace: failed to create workspace config: %w", err)
 	}
 
-	enc := kdl.NewEncoder(f)
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+
 	if err := enc.Encode(svc.Config); err != nil {
 		return nil, fmt.Errorf("workspace: failed to serialize workspace config: %w", err)
 	}

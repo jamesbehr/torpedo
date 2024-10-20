@@ -1,22 +1,22 @@
 package root
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/jamesbehr/torpedo/filesystem"
-	"github.com/sblinch/kdl-go"
 )
 
 type Workspace struct {
-	Name       string `kdl:"name"`
-	Jumplisted bool   `kdl:"jumplisted"`
+	Name       string `json:"name"`
+	Jumplisted bool   `json:"jumplisted"`
 }
 
 type Configuration struct {
-	Workspaces []*Workspace `kdl:"workspaces"`
+	Workspaces []*Workspace `json:"workspaces"`
 }
 
 type Service struct {
@@ -24,7 +24,7 @@ type Service struct {
 	Config Configuration
 }
 
-const configName = ".torpedo.kdl"
+const configName = ".torpedo.json"
 
 func New(fs filesystem.FS) (*Service, error) {
 	var cfg Configuration
@@ -36,7 +36,7 @@ func New(fs filesystem.FS) (*Service, error) {
 
 	defer f.Close()
 
-	dec := kdl.NewDecoder(f)
+	dec := json.NewDecoder(f)
 	if err := dec.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("root: unable to deserialize config: %w", err)
 	}
@@ -55,7 +55,10 @@ func (svc *Service) SaveConfig() error {
 		return fmt.Errorf("root: could not open config file: %w", err)
 	}
 
-	if err := kdl.NewEncoder(f).Encode(svc.Config); err != nil {
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+
+	if err := enc.Encode(svc.Config); err != nil {
 		return fmt.Errorf("root: could not serialize config: %w", err)
 	}
 
