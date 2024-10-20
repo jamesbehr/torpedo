@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/jamesbehr/torpedo/editor"
@@ -45,6 +46,10 @@ func (cmd *WorkspaceJumplistEditCmd) Run(rt *root.Service) error {
 	}
 
 	if err := editor.Open(f.Name()); err != nil {
+		return err
+	}
+
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
 
