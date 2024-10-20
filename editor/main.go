@@ -4,10 +4,18 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
+
+	"github.com/jamesbehr/torpedo/filesystem"
 )
 
-func Editor() string {
+type Options struct {
+	FS    filesystem.FS
+	Name  string
+	Items []string
+	Help  string
+}
+
+func editor() string {
 	if v, ok := os.LookupEnv("TERM"); ok && v != "dumb" {
 		v, ok := os.LookupEnv("VISUAL")
 		if ok {
@@ -23,8 +31,8 @@ func Editor() string {
 	return "vi"
 }
 
-func Edit(path string) error {
-	cmd := exec.Command(Editor(), path)
+func Open(path string) error {
+	cmd := exec.Command(editor(), path)
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -35,22 +43,4 @@ func Edit(path string) error {
 	}
 
 	return nil
-}
-
-func EditList(path string, items []string) ([]string, error) {
-	data := strings.Join(items, "\n")
-	if err := os.WriteFile(path, []byte(data), 0744); err != nil {
-		return nil, fmt.Errorf("editor: unable to write list to file: %w", err)
-	}
-
-	if err := Edit(path); err != nil {
-		return nil, err
-	}
-
-	bytes, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("editor: unable to read list: %w", err)
-	}
-
-	return strings.Split(string(bytes), "\n"), nil
 }
