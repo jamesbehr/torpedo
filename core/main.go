@@ -20,6 +20,47 @@ var (
 	ErrNotInWorkspace = errors.New("core: not in workspace")
 )
 
+func encode(fs filesystem.FS, name string, v any) error {
+	if err := fs.MkdirAll(filepath.Dir(name), 0777); err != nil {
+		return err
+	}
+
+	f, err := fs.Create(name)
+	if err != nil {
+		return err
+	}
+
+	defer f.Close()
+
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+
+	if err := enc.Encode(v); err != nil {
+		return err
+	}
+
+	if err := f.Close(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func decode(fs filesystem.FS, name string, v any) error {
+	f, err := fs.Open(name)
+	if err != nil {
+		return err
+	}
+
+	defer f.Close()
+
+	if err := json.NewDecoder(f).Decode(v); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type workspace struct {
 	Name       string `json:"path"`
 	Jumplisted bool   `json:"jumplisted"`
@@ -30,20 +71,8 @@ type state struct {
 }
 
 func (state *state) Save(fs filesystem.FS) error {
-	f, err := fs.Create(stateName)
-	if err != nil {
-		return fmt.Errorf("core: failed to create state file: %w", err)
-	}
-
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-
-	if err := enc.Encode(state); err != nil {
-		return fmt.Errorf("core: failed to serialize state file: %w", err)
-	}
-
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("core: failed to close state file: %w", err)
+	if err := encode(fs, stateName, state); err != nil {
+		return fmt.Errorf("core: failed to save state: %w", err)
 	}
 
 	return nil
@@ -59,20 +88,8 @@ type workspaceConfig struct {
 }
 
 func (cfg *workspaceConfig) Save(fs filesystem.FS) error {
-	f, err := fs.Create(workspaceConfigName)
-	if err != nil {
-		return fmt.Errorf("core: failed to create workspace config: %w", err)
-	}
-
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-
-	if err := enc.Encode(cfg); err != nil {
-		return fmt.Errorf("core: failed to serialize workspace config: %w", err)
-	}
-
-	if err := f.Close(); err != nil {
-		return fmt.Errorf("core: failed to close workspace config: %w", err)
+	if err := encode(fs, workspaceConfigName, cfg); err != nil {
+		return fmt.Errorf("core: failed to save workspace config: %w", err)
 	}
 
 	return nil
@@ -139,32 +156,18 @@ func Scan() (*Service, error) {
 				config: workspaceConfig{},
 			}
 
-			f, err := svc.rootFs.Open(filepath.Join(dir, workspaceConfigName))
-			if err != nil {
-				return nil, fmt.Errorf("core: unable to open workspace config: %w", err)
-			}
-
-			defer f.Close()
-
-			if err := json.NewDecoder(f).Decode(&svc.currentWorkspace.config); err != nil {
-				return nil, fmt.Errorf("core: unable to parse workspace config: %w", err)
+			if err := decode(svc.rootFs, filepath.Join(dir, workspaceConfigName), &svc.currentWorkspace.config); err != nil {
+				return nil, fmt.Errorf("core: unable to read workspace config: %w", err)
 			}
 		}
 	}
 
-	f, err := svc.rootFs.Open(stateName)
-	if err != nil {
+	if err := decode(svc.rootFs, stateName, &svc.state); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return &svc, nil
 		}
 
-		return nil, fmt.Errorf("core: unable to open state file: %w", err)
-	}
-
-	defer f.Close()
-
-	if err := json.NewDecoder(f).Decode(&svc.state); err != nil {
-		return nil, fmt.Errorf("core: unable to parse state file: %w", err)
+		return nil, fmt.Errorf("core: unable to read state: %w", err)
 	}
 
 	return &svc, nil
@@ -401,10 +404,6 @@ func (j *Jumplist) Serialize(w io.Writer) error {
 		if _, err := fmt.Fprintf(w, "%s\n", line); err != nil {
 			return fmt.Errorf("jumplist: failed to serialize: %w", err)
 		}
-	}
-
-	if _, err := fmt.Fprintln(w); err != nil {
-		return fmt.Errorf("jumplist: failed to serialize: %w", err)
 	}
 
 	for _, line := range j.Trailer {

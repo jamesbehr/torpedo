@@ -4,19 +4,14 @@ Inspired by ThePrimeagen's Harpoon and tmux-sessionizer
 ## Workspaces
 The tool is built around the idea *workspaces* that contain *projects*.
 
-To begin creating workspaces and project, you must first create a workspace
-root. A workspace root contains a `.torpedo.kdl` configuration file that tracks
-all the workspaces.
+All workspaces are contained inside a workspace root, which defaults to
+`$HOME`. To create a new workspace, call `workspace new` with a path relative
+to your root.
 
-    $ mkdir ~/workspaces
-    $ cd ~/workspaces
-    $ torpedo init
+    $ torpedo workspace new workspaces/foo
 
-Once inside a workspace root, you can create a workspaces, e.g. called `foo`.
-
-    $ torpedo workspace new foo
-
-Once you have created a workspace, you can select it with the fuzzy finder.
+This will create a workspace in `~/workspaces/foo`. Once you have created a
+workspace, you can select it with the fuzzy finder.
 
     $ torpedo workspace pick
 

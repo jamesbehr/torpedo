@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"io"
-	"os"
 
 	"github.com/jamesbehr/torpedo/core"
 	"github.com/jamesbehr/torpedo/editor"
@@ -22,26 +20,20 @@ func (cmd *WorkspaceNewCmd) Run(svc *core.Service) error {
 type WorkspaceJumplistEditCmd struct{}
 
 func (cmd *WorkspaceJumplistEditCmd) Run(svc *core.Service) error {
-	f, err := os.CreateTemp("", "torpedo.jumplist*")
+	jl := svc.WorkspaceJumplist()
+
+	f, err := editor.CreateTemp("torpedo.jumplist*")
 	if err != nil {
 		return err
 	}
 
-	name := f.Name()
-
-	defer os.Remove(name)
 	defer f.Close()
 
-	jl := svc.WorkspaceJumplist()
 	if err := jl.Serialize(f); err != nil {
 		return err
 	}
 
-	if err := editor.Open(name); err != nil {
-		return err
-	}
-
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
+	if err := f.Edit(); err != nil {
 		return err
 	}
 
@@ -54,7 +46,7 @@ func (cmd *WorkspaceJumplistEditCmd) Run(svc *core.Service) error {
 		return err
 	}
 
-	return nil
+	return f.Close()
 }
 
 type WorkspaceJumplistGetCmd struct {
