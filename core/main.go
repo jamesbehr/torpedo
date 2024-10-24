@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/jamesbehr/torpedo/filesystem"
@@ -18,6 +19,7 @@ import (
 var (
 	ErrNotInRoot      = errors.New("core: not in root")
 	ErrNotInWorkspace = errors.New("core: not in workspace")
+	ErrNotInProject   = errors.New("core: not in project")
 )
 
 func encode(fs filesystem.FS, name string, v any) error {
@@ -61,13 +63,11 @@ func decode(fs filesystem.FS, name string, v any) error {
 	return nil
 }
 
-type workspace struct {
-	Name       string `json:"path"`
-	Jumplisted bool   `json:"jumplisted"`
-}
+type workspace struct{}
 
 type state struct {
-	Workspaces []*workspace `json:"workspaces"`
+	Workspaces map[string]*workspace `json:"workspaces"`
+	Jumplist   []string              `json:"jumplist"`
 }
 
 func (state *state) Save(fs filesystem.FS) error {
@@ -79,12 +79,12 @@ func (state *state) Save(fs filesystem.FS) error {
 }
 
 type project struct {
-	Name       string `json:"name"`
-	Jumplisted bool   `json:"jumplisted"`
+	Jumplist []string `json:"jumplist"`
 }
 
 type workspaceConfig struct {
-	Projects []*project `json:"projects"`
+	Projects map[string]*project `json:"projects"`
+	Jumplist []string            `json:"jumplist"`
 }
 
 func (cfg *workspaceConfig) Save(fs filesystem.FS) error {
@@ -102,14 +102,19 @@ const (
 )
 
 type currentWorkspace struct {
-	name   string
-	config workspaceConfig
+	name           string
+	config         workspaceConfig
+	currentProject *string
 }
 
 type Service struct {
 	rootFs           filesystem.FS
 	currentWorkspace *currentWorkspace
 	state            state
+}
+
+func Scan2(pwd string) {
+
 }
 
 func Scan() (*Service, error) {
@@ -136,6 +141,7 @@ func Scan() (*Service, error) {
 		return nil, ErrNotInRoot
 	}
 
+	// Find the current workspace, if any
 	for dir := rel; dir != "."; dir = filepath.Dir(dir) {
 		children, err := svc.rootFs.ReadDir(dir)
 		if err != nil {
@@ -162,6 +168,19 @@ func Scan() (*Service, error) {
 		}
 	}
 
+	// Find the current project, if any
+	if svc.currentWorkspace != nil {
+		for dir := rel; dir != "."; dir = filepath.Dir(dir) {
+			for name := range svc.currentWorkspace.config.Projects {
+				path := filepath.Join(svc.currentWorkspace.name, name)
+
+				if dir == path {
+					svc.currentWorkspace.currentProject = &name
+				}
+			}
+		}
+	}
+
 	if err := decode(svc.rootFs, stateName, &svc.state); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return &svc, nil
@@ -173,6 +192,46 @@ func Scan() (*Service, error) {
 	return &svc, nil
 }
 
+func (svc *Service) currentProject() (*project, error) {
+	if svc.currentWorkspace == nil || svc.currentWorkspace.currentProject == nil {
+		return nil, ErrNotInProject
+	}
+
+	return svc.currentWorkspace.config.Projects[*svc.currentWorkspace.currentProject], nil
+}
+
+func (svc *Service) FileJumplist() (*Jumplist, error) {
+	p, err := svc.currentProject()
+	if err != nil {
+		return nil, err
+	}
+
+	jl := Jumplist{
+		header: []string{
+			"Select the files the you want to be present in your jumplist",
+			"Blank lines or lines starting with '#' will be ignored. The first non-empty line",
+			"will be the the 0th item in the jumplist.",
+		},
+	}
+
+	for _, name := range p.Jumplist {
+		jl.items = append(jl.items, name)
+	}
+
+	return &jl, nil
+}
+
+func (svc *Service) UpdateFileJumplist(names []string) error {
+	p, err := svc.currentProject()
+	if err != nil {
+		return err
+	}
+
+	p.Jumplist = names
+
+	return svc.currentWorkspace.config.Save(svc.rootFs)
+}
+
 func (svc *Service) CreateProject(name string) error {
 	if svc.currentWorkspace == nil {
 		return ErrNotInWorkspace
@@ -182,10 +241,7 @@ func (svc *Service) CreateProject(name string) error {
 		return fmt.Errorf("core: could not create project dir: %w", err)
 	}
 
-	svc.currentWorkspace.config.Projects = append(svc.currentWorkspace.config.Projects, &project{
-		Name:       name,
-		Jumplisted: false,
-	})
+	svc.currentWorkspace.config.Projects[name] = &project{}
 
 	return svc.currentWorkspace.config.Save(svc.rootFs)
 }
@@ -220,48 +276,36 @@ func (svc *Service) ProjectJumplist() (*Jumplist, error) {
 	}
 
 	jl := Jumplist{
-		Header: []string{
+		header: []string{
 			"Select the projects the you want to be present in your jumplist",
 			"Blank lines or lines starting with '#' will be ignored. The first non-empty line",
 			"will be the the 0th item in the jumplist.",
 		},
 	}
 
-	for _, p := range svc.currentWorkspace.config.Projects {
-		if p.Jumplisted {
-			jl.Items = append(jl.Items, p.Name)
+	for name := range svc.currentWorkspace.config.Projects {
+		if slices.Contains(svc.currentWorkspace.config.Jumplist, name) {
+			jl.items = append(jl.items, name)
 		} else {
-			jl.Trailer = append(jl.Trailer, p.Name)
+			jl.trailer = append(jl.trailer, name)
 		}
 	}
 
 	return &jl, nil
 }
 
-func (svc *Service) UpdateProjectJumplist(paths []string) error {
+func (svc *Service) UpdateProjectJumplist(names []string) error {
 	if svc.currentWorkspace == nil {
 		return ErrNotInWorkspace
 	}
 
-	for _, p := range svc.currentWorkspace.config.Projects {
-		p.Jumplisted = false
+	for _, name := range names {
+		if _, ok := svc.currentWorkspace.config.Projects[name]; !ok {
+			return fmt.Errorf("core: project does not exist %q", name)
+		}
 	}
 
-	for _, path := range paths {
-		found := false
-		for _, p := range svc.currentWorkspace.config.Projects {
-			if p.Name == path {
-				p.Jumplisted = true
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			return fmt.Errorf("core: workspace does not exist %q", path)
-		}
-
-	}
+	svc.currentWorkspace.config.Jumplist = names
 
 	return svc.currentWorkspace.config.Save(svc.rootFs)
 }
@@ -271,10 +315,10 @@ func (svc *Service) ProjectNames() ([]string, error) {
 		return nil, ErrNotInWorkspace
 	}
 
-	names := make([]string, len(svc.currentWorkspace.config.Projects))
+	names := make([]string, 0, len(svc.currentWorkspace.config.Projects))
 
-	for i, p := range svc.currentWorkspace.config.Projects {
-		names[i] = p.Name
+	for name := range svc.currentWorkspace.config.Projects {
+		names = append(names, name)
 	}
 
 	return names, nil
@@ -295,10 +339,7 @@ func (svc *Service) CreateWorkspace(name string) error {
 		return fmt.Errorf("core: failed to write workspace config: %w", err)
 	}
 
-	svc.state.Workspaces = append(svc.state.Workspaces, &workspace{
-		Name:       name,
-		Jumplisted: false,
-	})
+	svc.state.Workspaces[name] = &workspace{}
 
 	return svc.state.Save(svc.rootFs)
 }
@@ -323,74 +364,68 @@ func (svc *Service) AttachWorkspaceSession(name string, t *tmux.Client) error {
 
 func (svc *Service) WorkspaceJumplist() *Jumplist {
 	jl := Jumplist{
-		Header: []string{
+		header: []string{
 			"Select the workspaces the you want to be present in your jumplist",
 			"Blank lines or lines starting with '#' will be ignored. The first non-empty line",
 			"will be the the 0th item in the jumplist.",
 		},
 	}
 
-	for _, ws := range svc.state.Workspaces {
-		if ws.Jumplisted {
-			jl.Items = append(jl.Items, ws.Name)
+	for name := range svc.state.Workspaces {
+		if slices.Contains(svc.state.Jumplist, name) {
+			jl.items = append(jl.items, name)
 		} else {
-			jl.Trailer = append(jl.Trailer, ws.Name)
+			jl.trailer = append(jl.items, name)
 		}
 	}
 
 	return &jl
 }
 
-func (svc *Service) UpdateWorkspaceJumplist(paths []string) error {
-	for _, ws := range svc.state.Workspaces {
-		ws.Jumplisted = false
+func (svc *Service) UpdateWorkspaceJumplist(names []string) error {
+	for _, name := range names {
+		if _, ok := svc.state.Workspaces[name]; !ok {
+			return fmt.Errorf("core: workspace does not exist %q", name)
+		}
 	}
 
-	for _, path := range paths {
-		found := false
-		for _, ws := range svc.state.Workspaces {
-			if ws.Name == path {
-				ws.Jumplisted = true
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			return fmt.Errorf("core: workspace does not exist %q", path)
-		}
-
-	}
+	svc.state.Jumplist = names
 
 	return svc.state.Save(svc.rootFs)
 }
 
 func (svc *Service) WorkspaceNames() []string {
-	names := make([]string, len(svc.state.Workspaces))
+	names := make([]string, 0, len(svc.state.Workspaces))
 
-	for i, ws := range svc.state.Workspaces {
-		names[i] = ws.Name
+	for name := range svc.state.Workspaces {
+		names = append(names, name)
 	}
 
 	return names
 }
 
 type Jumplist struct {
-	Header  []string
-	Items   []string
-	Trailer []string
+	header  []string
+	items   []string
+	trailer []string
+}
+
+func (j *Jumplist) Items() []string { return j.items }
+
+func (j *Jumplist) Add(item string) {
+	j.items = append(j.items, item)
 }
 
 func (j *Jumplist) Get(index int) (string, error) {
-	if index < len(j.Items) {
-		return j.Items[index], nil
+	if index < len(j.items) {
+		return j.items[index], nil
 	}
 
 	return "", fmt.Errorf("jumplist: item does not exist %d", index)
 }
 
 func (j *Jumplist) Serialize(w io.Writer) error {
-	for _, line := range j.Header {
+	for _, line := range j.header {
 		if _, err := fmt.Fprintf(w, "# %s\n", line); err != nil {
 			return fmt.Errorf("jumplist: failed to serialize: %w", err)
 		}
@@ -400,13 +435,13 @@ func (j *Jumplist) Serialize(w io.Writer) error {
 		return fmt.Errorf("jumplist: failed to serialize: %w", err)
 	}
 
-	for _, line := range j.Items {
+	for _, line := range j.items {
 		if _, err := fmt.Fprintf(w, "%s\n", line); err != nil {
 			return fmt.Errorf("jumplist: failed to serialize: %w", err)
 		}
 	}
 
-	for _, line := range j.Trailer {
+	for _, line := range j.trailer {
 		if _, err := fmt.Fprintf(w, "# %s\n", line); err != nil {
 			return fmt.Errorf("jumplist: failed to serialize: %w", err)
 		}

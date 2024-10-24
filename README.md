@@ -84,12 +84,12 @@ manage a Tmux session for a file in the jumplist, but you can edit it and get
 the filepath just like you would for a workspace or project. You must be inside
 a project for this jumplist to work.
 
-    $ torpedo files jumplist edit
-    $ torpedo files jumplist get 0
+    $ torpedo project file jumplist edit
+    $ torpedo project file jumplist get 0
 
 You could use this in a script, e.g. to open the first jumplist item in `vim`.
 
-    $ vim "$(torpedo files jumplist get 0)"
+    $ vim "$(torpedo project file jumplist get 0)"
 
 This could also be integrated inside your editor for fast Harpoon-style jumping
 as well.

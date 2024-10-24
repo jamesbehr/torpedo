@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/jamesbehr/torpedo/core"
-	"github.com/jamesbehr/torpedo/editor"
 	"github.com/jamesbehr/torpedo/picker"
 	"github.com/jamesbehr/torpedo/tmux"
 )
@@ -25,31 +24,12 @@ func (cmd *ProjectJumplistEditCmd) Run(svc *core.Service) error {
 		return err
 	}
 
-	f, err := editor.CreateTemp("torpedo.jumplist*")
+	loaded, err := editJumplist(jl)
 	if err != nil {
 		return err
 	}
 
-	defer f.Close()
-
-	if err := jl.Serialize(f); err != nil {
-		return err
-	}
-
-	if err := f.Edit(); err != nil {
-		return err
-	}
-
-	loaded, err := core.ParseJumplist(f)
-	if err != nil {
-		return err
-	}
-
-	if err := svc.UpdateProjectJumplist(loaded); err != nil {
-		return err
-	}
-
-	return f.Close()
+	return svc.UpdateProjectJumplist(loaded)
 }
 
 type ProjectJumplistGetCmd struct {
@@ -116,4 +96,5 @@ type ProjectCmd struct {
 	New      ProjectNewCmd      `cmd:"" help:"Create a new project"`
 	Pick     ProjectPickCmd     `cmd:"" help:"Pick a project in the picker"`
 	Jumplist ProjectJumplistCmd `cmd:"" help:"Manage the project jumplist"`
+	File     FileCmd            `cmd:"" help:"Manage project files"`
 }
