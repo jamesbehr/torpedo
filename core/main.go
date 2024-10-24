@@ -107,18 +107,28 @@ type currentWorkspace struct {
 	currentProject *string
 }
 
+func (ws *currentWorkspace) Save(fs filesystem.FS) error {
+	subfs, err := fs.Sub(ws.name)
+	if err != nil {
+		return err
+	}
+
+	return ws.config.Save(subfs)
+}
+
 type Service struct {
 	rootFs           filesystem.FS
 	currentWorkspace *currentWorkspace
 	state            state
 }
 
-func Scan2(pwd string) {
-
-}
-
 func Scan() (*Service, error) {
-	svc := Service{}
+	svc := Service{
+		state: state{
+			Workspaces: map[string]*workspace{},
+			Jumplist:   []string{},
+		},
+	}
 
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -158,8 +168,11 @@ func Scan() (*Service, error) {
 
 		if isWorkspace {
 			svc.currentWorkspace = &currentWorkspace{
-				name:   dir,
-				config: workspaceConfig{},
+				name: dir,
+				config: workspaceConfig{
+					Projects: map[string]*project{},
+					Jumplist: []string{},
+				},
 			}
 
 			if err := decode(svc.rootFs, filepath.Join(dir, workspaceConfigName), &svc.currentWorkspace.config); err != nil {
@@ -229,7 +242,7 @@ func (svc *Service) UpdateFileJumplist(names []string) error {
 
 	p.Jumplist = names
 
-	return svc.currentWorkspace.config.Save(svc.rootFs)
+	return svc.currentWorkspace.Save(svc.rootFs)
 }
 
 func (svc *Service) CreateProject(name string) error {
@@ -241,9 +254,11 @@ func (svc *Service) CreateProject(name string) error {
 		return fmt.Errorf("core: could not create project dir: %w", err)
 	}
 
-	svc.currentWorkspace.config.Projects[name] = &project{}
+	svc.currentWorkspace.config.Projects[name] = &project{
+		Jumplist: []string{},
+	}
 
-	return svc.currentWorkspace.config.Save(svc.rootFs)
+	return svc.currentWorkspace.Save(svc.rootFs)
 }
 
 func (svc *Service) AttachProjectSession(name string, t *tmux.Client) error {
@@ -307,7 +322,7 @@ func (svc *Service) UpdateProjectJumplist(names []string) error {
 
 	svc.currentWorkspace.config.Jumplist = names
 
-	return svc.currentWorkspace.config.Save(svc.rootFs)
+	return svc.currentWorkspace.Save(svc.rootFs)
 }
 
 func (svc *Service) ProjectNames() ([]string, error) {
