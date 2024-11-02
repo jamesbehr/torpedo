@@ -1,6 +1,8 @@
 package picker
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,33 +17,19 @@ func Pick(items []string) (string, error) {
 
 	cmd := exec.Command(path)
 	cmd.Stderr = os.Stderr
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return "", fmt.Errorf("picker: cannot create input pipe: %w", err)
-	}
-
-	errc := make(chan error, 1)
-	go func() {
-		defer stdin.Close()
-		defer close(errc)
-
-		data := []byte(strings.Join(items, "\n"))
-
-		if _, err := stdin.Write(data); err != nil {
-			errc <- fmt.Errorf("picker: error writing to stdin: %w", err)
-			return
-		}
-	}()
+	cmd.Stdin = bytes.NewBuffer([]byte(strings.Join(items, "\n")))
 
 	chosen, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("picker: error while running the command: %w", err)
 	}
 
-	if err, ok := <-errc; ok {
-		return "", err
+	needle := strings.TrimSuffix(string(chosen), "\n")
+	for _, item := range items {
+		if needle == item {
+			return item, nil
+		}
 	}
 
-	return strings.TrimSuffix(string(chosen), "\n"), nil
+	return "", errors.New("picker: command returned invalid item")
 }

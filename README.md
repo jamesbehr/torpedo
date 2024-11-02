@@ -1,95 +1,83 @@
 # Torpedo
 Inspired by ThePrimeagen's Harpoon and tmux-sessionizer
 
-## Workspaces
-The tool is built around the idea *workspaces* that contain *projects*.
+## Introduction
+Torpedo manages via *projects*, which are special directories containing a
+`.torpedo` subdirectory and some other files (e.g. source code).
+Each project is assigned a Tmux session and Torpedo provides functions to
+easily switch between them.
 
-All workspaces are contained inside a workspace root, which defaults to
-`$HOME`. To create a new workspace, call `workspace new` with a path relative
-to your root.
+If you are inside a directory, you can turn it into a project by running the
+following command.
 
-    $ torpedo workspace new workspaces/foo
+    $ torpedo init
 
-This will create a workspace in `~/workspaces/foo`. Once you have created a
-workspace, you can select it with the fuzzy finder.
+This creates a `.torpedo` directory, containing a number of configuration
+files.
 
-    $ torpedo workspace pick
+You can also create template `.torpedo` directories.
 
-After picking a workspace, `torpedo` will switch to the corresponding `tmux`
+    $ torpedo init --template go
+
+It's recommended to add the `.torpedo` directory to your global `gitignore`
+which is by default located at `~/.config/git/ignore`.
+This prevents it being tracked by Git, and gives you the freedom to add
+whatever you want to the directory.
+
+You can now pick a project to jump to, using `fzf`. This also requires `tmux`
+to be installed.
+
+    $ torpedo pick
+
+After picking a project, Torpedo will switch to the corresponding `tmux`
 session or create it if it does not exist.
 
-You can re-run this command at any time to pick a workspace. This can be
+You can re-run this command at any time to pick a project. This can be
 bound to a key in your `~/.tmux.conf` for easy access.
 
-    bind-key C-w display-popup -E -E "torpedo workspace pick"
+    bind-key C-f display-popup -E -E "torpedo pick"
 
-You can also manage a workspace jumplist. This is a numbered list of workspaces
-that allow for quick jumping. You can edit the workspace jumplist inside your
-editor.
+You can also provide a path (or paths) to `pick`.
 
-    $ torpedo workspace jumplist edit
+    $ torpedo pick --path ~/personal --path ~/work
 
-This will print out all the available workspaces, but commented out. You can
-uncomment and reorder them to edit the jumplist. The first uncommented line is
-numbered 0, with the remaining items being numbered sequentially.
-You can jump to workspace by its jumplist number.
+The default set of paths can be configured, otherwise it will default to
+`$HOME`.
 
-    $ torpedo workspace jumplist goto 0
+    TODO
 
-You can also see the workspace path without switching.
+Sometimes, you want to be able to jump to a project faster than is possible
+using `fzf`. In this case, you can use marks. If you are inside a project, you
+can add/remove it to/from your list of marks.
 
-    $ torpedo workspace jumplist get 0
+    $ torpedo marks add
+    $ torpedo marks rm
 
-## Projects
-Once you're inside a workspace, you are able to start adding projects to it.
-You can create a new project directory `foo`.
+Its possible to rearrange the list of marks in your chosen text editor.
 
-    $ torpedo project new foo
+    $ torpedo marks edit
 
-Sometimes the directory already exists, for example if you `git clone` it. You
-can add an existing directory as a project instead.
+Once you have some projects marked, you can then jump to one of the items by
+way of its index on the list of marks.
 
-    $ git clone ssh://git@github.com/jamesbehr/torpedo
-    $ torpedo project add torpedo
+    $ torpedo marks jump 0
 
-Torpedo remembers all your projects inside your workspace's config file.
-Projects have their own Tmux sessions that you can jump to with the fuzzy finder.
+This is quite useful when bound to a hotkey in your `~/.tmux.conf`.
 
-    $ torpedo project pick
+    bind-key C-h run-shell "torpedo marks jump 0"
+    bind-key C-j run-shell "torpedo marks jump 1"
+    bind-key C-k run-shell "torpedo marks jump 2"
+    bind-key C-l run-shell "torpedo marks jump 3"
 
-If you know the project's name you can jump to it directly. This can be useful
-for scripting, such as when you have a project that is common to many
-workspaces (e.g. `notes`).
+## File marks
+TODO
 
-    $ torpedo project goto notes
+## Commands
+Commands are programs stored in the `.torpedo/cmd` directory of your project
+that can be run by name via the `run` command. Commands that do not have the
+executable bit set are ignored.
 
-Projects have their own jumplists as well that you can edit in the same way as
-workspaces.
+For example, you can put a script at `.torpedo/cmd/test`, set the executable
+bit and run it with the following command.
 
-    $ torpedo project jumplist edit
-    $ torpedo project jumplist goto 0
-
-You can automate this all inside your `~/.tmux.conf`.
-
-    bind-key C-f display-popup -E -E "torpedo project pick"
-    bind-key C-n run-shell "torpedo project goto notes"
-    bind-key C-h run-shell "torpedo project jumplist goto 0"
-    bind-key C-j run-shell "torpedo project jumplist goto 1"
-    bind-key C-k run-shell "torpedo project jumplist goto 2"
-    bind-key C-l run-shell "torpedo project jumplist goto 3"
-
-## Files
-Like Harpoon, we have file jumplists for each project as well. Torpedo doesn't
-manage a Tmux session for a file in the jumplist, but you can edit it and get
-the filepath just like you would for a workspace or project. You must be inside
-a project for this jumplist to work.
-
-    $ torpedo project file jumplist edit
-    $ torpedo project file jumplist get 0
-
-You could use this in a script, e.g. to open the first jumplist item in `vim`.
-
-    $ vim "$(torpedo project file jumplist get 0)"
-
-This could also be integrated inside your editor for fast Harpoon-style jumping
-as well.
+    $ torpedo run test
