@@ -28,6 +28,7 @@ func (cmd *MarksRemoveCmd) Run(ctx *Context) error {
 
 type MarksEditCmd struct {
 	Directory string `default:"."`
+	Editor    string `env:"VISUAL,EDITOR" default:"vi"`
 }
 
 func (cmd *MarksEditCmd) Run(ctx *Context) error {
@@ -36,7 +37,7 @@ func (cmd *MarksEditCmd) Run(ctx *Context) error {
 		return err
 	}
 
-	return marks.Edit()
+	return marks.Edit(cmd.Editor)
 }
 
 type MarksAddCmd struct {

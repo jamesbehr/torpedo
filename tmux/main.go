@@ -301,6 +301,47 @@ func (opts *ListWindows) Args() []string {
 	return args
 }
 
+type SendKeys struct {
+	TargetPane string
+	Keys       []string
+}
+
+func (opts *SendKeys) Args() []string {
+	args := []string{"send-keys"}
+
+	if opts.TargetPane != "" {
+		args = append(args, "-t", opts.TargetPane)
+	}
+
+	args = append(args, opts.Keys...)
+
+	return args
+}
+
+type ListPanes struct {
+	Session bool
+	Filter  string
+	Format  string
+}
+
+func (opts *ListPanes) Args() []string {
+	args := []string{"list-panes"}
+
+	if opts.Session {
+		args = append(args, "-s")
+	}
+
+	if opts.Format != "" {
+		args = append(args, "-F", opts.Format)
+	}
+
+	if opts.Filter != "" {
+		args = append(args, "-f", opts.Filter)
+	}
+
+	return args
+}
+
 type Multi []Command
 
 func (m Multi) Args() []string {

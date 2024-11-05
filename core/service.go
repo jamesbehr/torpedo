@@ -13,13 +13,18 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jamesbehr/torpedo/editor"
 	"github.com/jamesbehr/torpedo/tmux"
 	"github.com/jamesbehr/torpedo/util"
 )
 
 type Service struct {
 	tmux *tmux.Client
+}
+
+func New() *Service {
+	return &Service{
+		tmux: &tmux.Client{},
+	}
 }
 
 const projectDataDir = ".torpedo"
@@ -314,6 +319,33 @@ func (svc *Service) RunProjectCommand(projectPath string, cmdName string, args [
 	return nil
 }
 
+func (svc *Service) SendKeysToProcess(processName string, keys []string) error {
+	listPanes := tmux.ListPanes{
+		Session: true,
+		Filter:  fmt.Sprintf("#{==:#{pane_current_command},%s}", processName),
+		Format:  "#{pane_id}",
+	}
+
+	output, err := svc.tmux.Output(&listPanes)
+	if err != nil {
+		return err
+	}
+
+	panes := strings.Split(output, "\n")
+	if len(panes) == 0 {
+		return fmt.Errorf("could not find process %q in current Tmux session", processName)
+	}
+
+	paneId := panes[0]
+
+	sendKeys := tmux.SendKeys{
+		TargetPane: paneId,
+		Keys:       keys,
+	}
+
+	return svc.tmux.Run(&sendKeys)
+}
+
 func (svc *Service) FileMarks(projectPath string) (*Marks, error) {
 	return NewMarks(filepath.Join(projectPath, projectDataDir, "marks"))
 }
@@ -477,8 +509,52 @@ func (m *Marks) Get(index int) (string, error) {
 	return "", fmt.Errorf("invalid mark index: %d", index)
 }
 
-func (m *Marks) Edit() error {
-	// TODO: Create the file if it does not exist?
-	// TODO: Validate
-	return editor.Open(m.path)
+func (m *Marks) Edit(editor string) error {
+	cmd := exec.Command(editor, m.path)
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("editor: unable to start editor: %w", err)
+	}
+
+	return nil
+}
+
+type FileMark struct {
+	Path string
+	Line uint64
+}
+
+func NewFileMark(path string, line uint64) FileMark {
+	return FileMark{path, line}
+}
+
+func (fm FileMark) String() string {
+	return fmt.Sprintf("%s:%d", fm.Path, fm.Line)
+}
+
+func ParseFileMark(mark string) (*FileMark, error) {
+	if mark == "" {
+		return nil, errors.New("invalid mark")
+	}
+
+	pieces := strings.SplitN(mark, ":", 2)
+	if len(pieces) != 2 {
+		return nil, errors.New("invalid mark")
+	}
+
+	n, err := strconv.ParseUint(pieces[1], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	result := FileMark{
+		Path: pieces[0],
+		Line: n,
+	}
+
+	return &result, nil
 }

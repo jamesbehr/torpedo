@@ -105,7 +105,7 @@ func Execute() {
 	// TODO: kong can read defaults from a configuration
 	ctx := kong.Parse(&cli)
 	context := Context{
-		Service: &core.Service{}, // TODO: Create Tmux client
+		Service: core.New(),
 		Stdout:  os.Stdout,
 	}
 	ctx.Bind(&context)

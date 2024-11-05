@@ -70,6 +70,25 @@ This is quite useful when bound to a hotkey in your `~/.tmux.conf`.
     bind-key C-l run-shell "torpedo marks jump 3"
 
 ## File marks
+Torpedo tracks file marks in a similar way to project marks.
+Filemarks are stored in `.torpedo/marks`, and take the form `{path}` or
+`{path}:{line}`.
+
+If you are inside a project, you can add a filemark to a file and a line number.
+
+    $ torpedo file-marks add README.md 12
+
+The file must be a file inside the project directories or its subdirectories.
+You can remove that mark with the following command.
+
+    $ torpedo file-marks rm README
+
+This is intended to be used from inside Vim, for example.
+
+    :execute "!torpedo file-marks add " . expand('%') . " " . line('.')
+
+You can bind this to a keybinding to quickly mark or remove marks.
+
 TODO
 
 ## Commands

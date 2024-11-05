@@ -1,16 +1,19 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"html/template"
-	"log"
 	"path/filepath"
+
+	"github.com/jamesbehr/torpedo/core"
 )
 
 type FileMarksRemoveCmd struct {
 	Directory string `default:"."`
 	File      string `arg:""`
+	Line      uint64 `arg:""`
 }
 
 func (cmd *FileMarksRemoveCmd) Run(ctx *Context) error {
@@ -38,11 +41,13 @@ func (cmd *FileMarksRemoveCmd) Run(ctx *Context) error {
 		return err
 	}
 
-	return marks.Remove(rel)
+	mark := core.NewFileMark(rel, cmd.Line)
+	return marks.Remove(mark.String())
 }
 
 type FileMarksEditCmd struct {
 	Directory string `default:"."`
+	Editor    string `env:"VISUAL,EDITOR" default:"vi"`
 }
 
 func (cmd *FileMarksEditCmd) Run(ctx *Context) error {
@@ -56,12 +61,13 @@ func (cmd *FileMarksEditCmd) Run(ctx *Context) error {
 		return err
 	}
 
-	return marks.Edit()
+	return marks.Edit(cmd.Editor)
 }
 
 type FileMarksAddCmd struct {
 	Directory string `default:"."`
 	File      string `arg:""`
+	Line      uint64 `arg:""`
 }
 
 func (cmd *FileMarksAddCmd) Run(ctx *Context) error {
@@ -89,16 +95,21 @@ func (cmd *FileMarksAddCmd) Run(ctx *Context) error {
 		return err
 	}
 
-	return marks.Add(rel)
+	mark := core.NewFileMark(rel, cmd.Line)
+	return marks.Add(mark.String())
 }
 
 type FileMarksListCmd struct {
 	Directory string `default:"."`
 	Format    string `default:"{{.Index}}: {{.Mark}}"`
 }
+
 type fileMark struct {
-	Index int
-	Mark  string
+	Index    int
+	Mark     string
+	Filename string
+	Line     uint64
+	Path     string
 }
 
 func (cmd *FileMarksListCmd) Run(ctx *Context) error {
@@ -123,11 +134,20 @@ func (cmd *FileMarksListCmd) Run(ctx *Context) error {
 	}
 
 	for i, mark := range items {
-		data := fileMark{
-			Index: i,
-			Mark:  mark,
-			// TODO: Path, line numbers
+		fm, err := core.ParseFileMark(mark)
+		if err != nil {
+			continue
 		}
+
+		data := fileMark{
+			Index:    i,
+			Mark:     mark,
+			Filename: fm.Path,
+			Line:     fm.Line,
+			Path:     filepath.Join(dir, fm.Path),
+		}
+
+		data.Path = filepath.Join(dir, data.Filename)
 
 		if err := tmpl.Execute(ctx.Stdout, &data); err != nil {
 			return err
@@ -162,7 +182,9 @@ func (cmd *FileMarksGetCmd) Run(ctx *Context) error {
 		return err
 	}
 
-	if _, err := fmt.Fprintln(ctx.Stdout, mark); err != nil {
+	path := filepath.Join(dir, mark)
+
+	if _, err := fmt.Fprintln(ctx.Stdout, path); err != nil {
 		return err
 	}
 
@@ -170,8 +192,10 @@ func (cmd *FileMarksGetCmd) Run(ctx *Context) error {
 }
 
 type FileMarksJumpCmd struct {
-	Directory string `default:"."`
-	Index     int    `arg:""`
+	Directory string   `default:"."`
+	Index     int      `arg:""`
+	Editor    string   `env:"VISUAL,EDITOR" default:"vi"`
+	Keys      []string `default:"Escape,:e +{{.Line}} {{.Path}},Enter"`
 }
 
 func (cmd *FileMarksJumpCmd) Run(ctx *Context) error {
@@ -190,15 +214,29 @@ func (cmd *FileMarksJumpCmd) Run(ctx *Context) error {
 		return err
 	}
 
-	log.Println(mark)
+	fm, err := core.ParseFileMark(mark)
+	if err != nil {
+		return err
+	}
 
-	// TODO:
-	// Find the pane that is running your editor
-	//   tmux list-panes -st test -f '#{==:#{pane_current_command},nvim}' -F '#{pane_id}'
-	// Then using the returned pane id, you can send commands to Vim
-	//   tmux send-keys -t '%2' Escape ':e +<line> <filename>' Enter
+	keys := make([]string, len(cmd.Keys))
 
-	return nil
+	for i := range cmd.Keys {
+		tmpl, err := template.New("format").Parse(cmd.Keys[i])
+		if err != nil {
+			return err
+		}
+
+		var result bytes.Buffer
+
+		if err := tmpl.Execute(&result, fm); err != nil {
+			return err
+		}
+
+		keys[i] = result.String()
+	}
+
+	return ctx.Service.SendKeysToProcess(cmd.Editor, keys)
 }
 
 type FileMarksCmd struct {
