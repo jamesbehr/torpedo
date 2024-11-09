@@ -1,7 +1,6 @@
 package core
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,12 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/jamesbehr/torpedo/tmux"
-	"github.com/jamesbehr/torpedo/util"
 )
 
 type Service struct {
@@ -175,9 +172,7 @@ func (svc *Service) FindProjects(paths []string) ([]string, error) {
 	return projects, nil
 }
 
-func (svc *Service) AttachProject(projectPath string, windows []Window) error {
-	sessionName := util.UnexpandPath(projectPath)
-
+func (svc *Service) AttachProject(sessionName, projectPath string, windows []Window) error {
 	hasSession := tmux.HasSession(sessionName)
 	if err := svc.tmux.Run(hasSession); err != nil {
 		if !tmux.IsExitError(err) {
@@ -346,8 +341,8 @@ func (svc *Service) SendKeysToProcess(processName string, keys []string) error {
 	return svc.tmux.Run(&sendKeys)
 }
 
-func (svc *Service) FileMarks(projectPath string) (*Marks, error) {
-	return NewMarks(filepath.Join(projectPath, projectDataDir, "marks"))
+func (svc *Service) ProjectDataFilePath(projectPath string, filename string) string {
+	return filepath.Join(projectPath, projectDataDir, filename)
 }
 
 type Config struct {
@@ -375,186 +370,4 @@ func cleanMarkLine(line string) string {
 	}
 
 	return strings.TrimSpace(line)
-}
-
-type Marks struct {
-	path string
-}
-
-func NewMarks(path string) (*Marks, error) {
-	if path == "" {
-		return nil, errors.New("invalid marks file")
-	}
-
-	return &Marks{path}, nil
-}
-
-func (m *Marks) read() ([]string, error) {
-	f, err := os.Open(m.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-
-		return nil, err
-	}
-
-	defer f.Close()
-
-	lines := []string{}
-
-	s := bufio.NewScanner(f)
-
-	for s.Scan() {
-		lines = append(lines, s.Text())
-	}
-
-	if err := s.Err(); err != nil {
-		return nil, err
-	}
-
-	if err := f.Close(); err != nil {
-		return nil, err
-	}
-
-	return lines, nil
-}
-
-func (m *Marks) write(lines []string) error {
-	if err := os.MkdirAll(filepath.Dir(m.path), 0777); err != nil {
-		return err
-	}
-
-	f, err := os.Create(m.path)
-	if err != nil {
-		return err
-	}
-
-	for _, line := range lines {
-		if _, err := fmt.Fprintln(f, line); err != nil {
-			return errors.Join(err, f.Close())
-		}
-	}
-
-	return f.Close()
-}
-
-func (m *Marks) Add(mark string) error {
-	lines, err := m.read()
-	if err != nil {
-		return err
-	}
-
-	for _, line := range lines {
-		if cleanMarkLine(line) == mark {
-			return nil
-		}
-	}
-
-	return m.write(append(lines, mark))
-}
-
-func (m *Marks) Remove(mark string) error {
-	lines, err := m.read()
-	if err != nil {
-		return err
-	}
-
-	for i, line := range lines {
-		if cleanMarkLine(line) == mark {
-			return m.write(slices.Delete(lines, i, i+1))
-		}
-	}
-
-	return nil
-}
-
-func (m *Marks) List() ([]string, error) {
-	lines, err := m.read()
-	if err != nil {
-		return nil, err
-	}
-
-	marks := make([]string, 0, len(lines))
-	for _, line := range lines {
-		cleaned := cleanMarkLine(line)
-
-		if cleaned != "" {
-			marks = append(marks, cleaned)
-		}
-	}
-
-	return marks, nil
-}
-
-func (m *Marks) Get(index int) (string, error) {
-	lines, err := m.read()
-	if err != nil {
-		return "", err
-	}
-
-	i := 0
-	for _, line := range lines {
-		cleaned := cleanMarkLine(line)
-
-		if cleaned != "" {
-			if i == index {
-				return cleaned, nil
-			}
-
-			i++
-		}
-	}
-
-	return "", fmt.Errorf("invalid mark index: %d", index)
-}
-
-func (m *Marks) Edit(editor string) error {
-	cmd := exec.Command(editor, m.path)
-
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("editor: unable to start editor: %w", err)
-	}
-
-	return nil
-}
-
-type FileMark struct {
-	Path string
-	Line uint64
-}
-
-func NewFileMark(path string, line uint64) FileMark {
-	return FileMark{path, line}
-}
-
-func (fm FileMark) String() string {
-	return fmt.Sprintf("%s:%d", fm.Path, fm.Line)
-}
-
-func ParseFileMark(mark string) (*FileMark, error) {
-	if mark == "" {
-		return nil, errors.New("invalid mark")
-	}
-
-	pieces := strings.SplitN(mark, ":", 2)
-	if len(pieces) != 2 {
-		return nil, errors.New("invalid mark")
-	}
-
-	n, err := strconv.ParseUint(pieces[1], 10, 64)
-	if err != nil {
-		return nil, err
-	}
-
-	result := FileMark{
-		Path: pieces[0],
-		Line: n,
-	}
-
-	return &result, nil
 }

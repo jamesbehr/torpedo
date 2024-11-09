@@ -2,163 +2,115 @@ package cmd
 
 import (
 	"fmt"
-	"html/template"
 
-	"github.com/jamesbehr/torpedo/core"
-	"github.com/jamesbehr/torpedo/util"
+	"github.com/jamesbehr/torpedo/format"
+	"github.com/jamesbehr/torpedo/marks"
 )
 
-type MarksRemoveCmd struct {
-	Directory string `default:"."`
+type MarksDelCmd struct {
+	Key string `arg:""`
 }
 
-func (cmd *MarksRemoveCmd) Run(ctx *Context) error {
-	dir, err := ctx.Service.FindCurrentProject(cmd.Directory)
+func (cmd *MarksDelCmd) Run(ctx *Context) error {
+	path := ctx.ConfigFilePath("marks.json")
+
+	m, err := marks.ReadMarks(path)
 	if err != nil {
 		return err
 	}
 
-	marks, err := core.NewMarks(cli.Marks.MarksFile)
+	delete(m, cmd.Key)
+
+	return m.Write(path)
+}
+
+type MarksSetCmd struct {
+	Key string `arg:""`
+}
+
+func (cmd *MarksSetCmd) Run(ctx *Context) error {
+	dir, err := ctx.Service.FindCurrentProject(ctx.WorkingDirectory)
 	if err != nil {
 		return err
 	}
 
-	return marks.Remove(util.UnexpandPath(dir))
-}
+	path := ctx.ConfigFilePath("marks.json")
 
-type MarksEditCmd struct {
-	Directory string `default:"."`
-	Editor    string `env:"VISUAL,EDITOR" default:"vi"`
-}
-
-func (cmd *MarksEditCmd) Run(ctx *Context) error {
-	marks, err := core.NewMarks(cli.Marks.MarksFile)
+	m, err := marks.ReadMarks(path)
 	if err != nil {
 		return err
 	}
 
-	return marks.Edit(cmd.Editor)
-}
+	m[cmd.Key] = ctx.UnexpandPath(dir)
 
-type MarksAddCmd struct {
-	Directory string `default:"."`
-}
-
-func (cmd *MarksAddCmd) Run(ctx *Context) error {
-	dir, err := ctx.Service.FindCurrentProject(cmd.Directory)
-	if err != nil {
-		return err
-	}
-
-	marks, err := core.NewMarks(cli.Marks.MarksFile)
-	if err != nil {
-		return err
-	}
-
-	return marks.Add(util.UnexpandPath(dir))
+	return m.Write(path)
 }
 
 type MarksListCmd struct {
-	Format string `default:"{{.Index}}: {{.Mark}}"`
-}
-
-type projectMark struct {
-	Index int
-	Mark  string
-	Path  string
+	Fields []string `default:"mark,project" enum:"mark,path,project"`
+	Format string   `default:"text"`
 }
 
 func (cmd *MarksListCmd) Run(ctx *Context) error {
-	tmpl, err := template.New("format").Parse(cmd.Format)
+	path := ctx.ConfigFilePath("marks.json")
+
+	m, err := marks.ReadMarks(path)
 	if err != nil {
 		return err
 	}
 
-	marks, err := core.NewMarks(cli.Marks.MarksFile)
+	formatter, err := format.New(cmd.Format, cmd.Fields, ctx.Stdout)
 	if err != nil {
 		return err
 	}
 
-	items, err := marks.List()
-	if err != nil {
-		return err
-	}
-
-	for i, mark := range items {
-		data := projectMark{
-			Index: i,
-			Mark:  mark,
-			Path:  util.ExpandPath(mark),
+	for key, value := range m {
+		data := map[string]any{
+			"mark":    key,
+			"project": value,
+			"path":    ctx.ExpandPath(value),
 		}
 
-		if err := tmpl.Execute(ctx.Stdout, &data); err != nil {
-			return err
-		}
-
-		if _, err := fmt.Fprintln(ctx.Stdout); err != nil {
+		if err := formatter.Write(data); err != nil {
 			return err
 		}
 	}
 
-	return nil
-}
-
-type MarksGetCmd struct {
-	Index int `arg:""`
-}
-
-func (cmd *MarksGetCmd) Run(ctx *Context) error {
-	marks, err := core.NewMarks(cli.Marks.MarksFile)
-	if err != nil {
-		return err
-	}
-
-	mark, err := marks.Get(cmd.Index)
-	if err != nil {
-		return err
-	}
-
-	projectDir := util.ExpandPath(mark)
-
-	if _, err := fmt.Fprintln(ctx.Stdout, projectDir); err != nil {
-		return err
-	}
-
-	return nil
+	return formatter.Close()
 }
 
 type MarksJumpCmd struct {
-	Index int `arg:""`
+	Key string `arg:""`
 }
 
 func (cmd *MarksJumpCmd) Run(ctx *Context) error {
-	marks, err := core.NewMarks(cli.Marks.MarksFile)
+	path := ctx.ConfigFilePath("marks.json")
+
+	m, err := marks.ReadMarks(path)
 	if err != nil {
 		return err
 	}
 
-	mark, err := marks.Get(cmd.Index)
-	if err != nil {
-		return err
+	value, ok := m[cmd.Key]
+	if !ok {
+		return fmt.Errorf("no such mark %q", cmd.Key)
 	}
 
-	projectDir := util.ExpandPath(mark)
+	projectDir := ctx.ExpandPath(value)
 
 	cfg, err := ctx.Service.ParseProjectConfig(projectDir)
 	if err != nil {
 		return err
 	}
 
-	return ctx.Service.AttachProject(projectDir, cfg.Windows)
+	sessionName := ctx.UnexpandPath(projectDir)
+
+	return ctx.Service.AttachProject(sessionName, projectDir, cfg.Windows)
 }
 
 type MarksCmd struct {
-	MarksFile string // TODO: Set default
-
-	Add  MarksAddCmd    `cmd:"" help:"Add the current project to your marks"`
-	Rm   MarksRemoveCmd `cmd:"" help:"Remove the current project from your marks"`
-	Edit MarksEditCmd   `cmd:"" help:"Edit your project marks in your editor"`
-	List MarksListCmd   `cmd:"" help:"List your marks"`
-	Get  MarksGetCmd    `cmd:"" help:"Get a marked project by index"`
-	Jump MarksJumpCmd   `cmd:"" help:"Jump to a marked project by index"`
+	Set  MarksSetCmd  `cmd:"" help:"Set a mark"`
+	Del  MarksDelCmd  `cmd:"" help:"Delete a mark"`
+	List MarksListCmd `cmd:"" help:"List your marks"`
+	Jump MarksJumpCmd `cmd:"" help:"Jump to a marked project by index"`
 }

@@ -10,23 +10,56 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/jamesbehr/torpedo/core"
 	"github.com/jamesbehr/torpedo/picker"
-	"github.com/jamesbehr/torpedo/util"
 )
 
 var defaultTemplate embed.FS
 
 type Context struct {
-	Service *core.Service
-	Stdout  io.Writer
+	Service          *core.Service
+	Stdout           io.Writer
+	WorkingDirectory string
+	Home             string
+	ConfigRoot       string
+}
+
+func (ctx *Context) ExpandPath(p string) string {
+	if p == "" {
+		return ""
+	}
+
+	if filepath.IsAbs(ctx.Home) {
+		rel, err := filepath.Rel("~", p)
+		if err == nil && filepath.IsLocal(rel) {
+			return filepath.Join(ctx.Home, rel)
+		}
+	}
+
+	return p
+}
+
+func (ctx *Context) UnexpandPath(p string) string {
+	if p == "" {
+		return ""
+	}
+
+	rel, err := filepath.Rel(ctx.Home, p)
+	if err == nil && filepath.IsLocal(rel) {
+		return filepath.Join("~", rel)
+	}
+
+	return p
+}
+
+func (ctx *Context) ConfigFilePath(name string) string {
+	return filepath.Join(ctx.ConfigRoot, "torpedo", name)
 }
 
 type InitCmd struct {
-	Template  string `default:"default"`
-	Directory string `default:"."`
+	Template string `default:"default"`
 }
 
 func (cmd *InitCmd) Run(ctx *Context) error {
-	if _, err := ctx.Service.FindCurrentProject(cmd.Directory); err != nil {
+	if _, err := ctx.Service.FindCurrentProject(ctx.WorkingDirectory); err != nil {
 		if err != core.ErrProjectNotFound {
 			return err
 		}
@@ -44,7 +77,7 @@ func (cmd *InitCmd) Run(ctx *Context) error {
 		return err
 	}
 
-	return ctx.Service.InitializeProject(cmd.Directory, dir)
+	return ctx.Service.InitializeProject(ctx.WorkingDirectory, dir)
 }
 
 type PickCmd struct {
@@ -58,7 +91,7 @@ func (cmd *PickCmd) Run(ctx *Context) error {
 	}
 
 	for i := range projects {
-		projects[i] = util.UnexpandPath(projects[i])
+		projects[i] = ctx.UnexpandPath(projects[i])
 	}
 
 	choice, err := picker.Pick(projects)
@@ -66,14 +99,15 @@ func (cmd *PickCmd) Run(ctx *Context) error {
 		return err
 	}
 
-	projectPath := util.ExpandPath(choice)
+	projectPath := ctx.ExpandPath(choice)
 
 	cfg, err := ctx.Service.ParseProjectConfig(projectPath)
 	if err != nil {
 		return err
 	}
 
-	return ctx.Service.AttachProject(projectPath, cfg.Windows)
+	sessionName := ctx.UnexpandPath(projectPath)
+	return ctx.Service.AttachProject(sessionName, projectPath, cfg.Windows)
 }
 
 type RunCmd struct {
@@ -104,9 +138,28 @@ var cli CLI
 func Execute() {
 	// TODO: kong can read defaults from a configuration
 	ctx := kong.Parse(&cli)
+
+	home := os.Getenv("HOME")
+	if !filepath.IsAbs(home) {
+		ctx.Fatalf("$HOME is not set")
+	}
+
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if !filepath.IsAbs(configHome) {
+		configHome = filepath.Join(home, ".config")
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		ctx.Fatalf(err.Error())
+	}
+
 	context := Context{
-		Service: core.New(),
-		Stdout:  os.Stdout,
+		Service:          core.New(),
+		Stdout:           os.Stdout,
+		WorkingDirectory: wd,
+		Home:             home,
+		ConfigRoot:       configHome,
 	}
 	ctx.Bind(&context)
 	ctx.FatalIfErrorf(ctx.Run())

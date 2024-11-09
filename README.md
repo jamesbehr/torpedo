@@ -47,49 +47,70 @@ The default set of paths can be configured, otherwise it will default to
     TODO
 
 Sometimes, you want to be able to jump to a project faster than is possible
-using `fzf`. In this case, you can use marks. If you are inside a project, you
-can add/remove it to/from your list of marks.
+using `fzf`. In this case, you can use marks.
+Marks associate a project with a key, and allow you to jump to the project by
+key.
+If you are inside a project, you can associate that project with the mark `foo`.
 
-    $ torpedo marks add
-    $ torpedo marks rm
+    $ torpedo marks set foo
 
-Its possible to rearrange the list of marks in your chosen text editor.
+It is then possible to jump to the mark by key, instead of using the fuzzy finder.
 
-    $ torpedo marks edit
+    $ torpedo marks jump foo
 
-Once you have some projects marked, you can then jump to one of the items by
-way of its index on the list of marks.
+You can also list the current marks
 
-    $ torpedo marks jump 0
+    $ torpedo marks list
 
-This is quite useful when bound to a hotkey in your `~/.tmux.conf`.
+If you don't want the mark anymore, you can delete it
+
+    $ torpedo marks del foo
+
+It can be quite useful to bind these commands to hotkeys in your `.tmux.conf`.
 
     bind-key C-h run-shell "torpedo marks jump 0"
     bind-key C-j run-shell "torpedo marks jump 1"
     bind-key C-k run-shell "torpedo marks jump 2"
     bind-key C-l run-shell "torpedo marks jump 3"
 
+    bind-key C-s switch-client -T setmark
+    bind-key -T setmark C-h run-shell "torpedo marks set 0"
+    bind-key -T setmark C-j run-shell "torpedo marks set 1"
+    bind-key -T setmark C-k run-shell "torpedo marks set 2"
+    bind-key -T setmark C-l run-shell "torpedo marks set 3"
+
+This allows you to, for example, press `<prefix> C-s C-h` to set a mark under
+key `0`, then jump to the same mark using `<prefix> C-h`.
+It also binds `j`, `k`, `l` to to the same under keys `1`, `2`, and `3`
+respectively for Harpoon-style project navigation.
+
 ## File marks
 Torpedo tracks file marks in a similar way to project marks.
-Filemarks are stored in `.torpedo/marks`, and take the form `{path}` or
-`{path}:{line}`.
+Each project has its own set of file marks.
 
-If you are inside a project, you can add a filemark to a file and a line number.
+If you are inside a project, you can add a file mark under key `foo` to the
+file `README.md` on line 12, column 1.
 
-    $ torpedo file-marks add README.md 12
+    $ torpedo file-marks set foo README.md 12 1
 
 The file must be a file inside the project directories or its subdirectories.
-You can remove that mark with the following command.
 
-    $ torpedo file-marks rm README
+Just like project marks, you can list the available marks
 
-This is intended to be used from inside Vim, for example.
+    $ torpedo file-marks list
 
-    :execute "!torpedo file-marks add " . expand('%') . " " . line('.')
+If you don't want the file mark anymore, you can remove it.
 
-You can bind this to a keybinding to quickly mark or remove marks.
+    $ torpedo file-marks rm foo
 
-TODO
+Unlike project marks, file marks don't provide a handy way to jump to them.
+This is intended to be used from inside your text editor via a plugin.
+It is possible to list the marks as JSON objects with the mark key, absolute
+path, line and column with the following command.
+
+    $ torpedo file-marks list --format json --fields mark,path,line,col
+
+A plugin can use this output to jump to a mark by key.
 
 ## Commands
 Commands are programs stored in the `.torpedo/cmd` directory of your project
