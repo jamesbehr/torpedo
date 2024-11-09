@@ -24,11 +24,13 @@ which is by default located at `~/.config/git/ignore`.
 This prevents it being tracked by Git, and gives you the freedom to add
 whatever you want to the directory.
 
-You can now pick a project to jump to, using `fzf`. This also requires `tmux`
-to be installed.
+You can use Torpedo to search for projects a list of search paths, and then
+pick one to jump to using a fuzzy finder.
 
-    $ torpedo pick
+    $ torpedo pick --paths ~/personal,~/work
+    $ torpedo pick --paths ~/personal --paths ~/work # you can pass the flag more than once
 
+This requires `fzf` and `tmux` to be installed.
 After picking a project, Torpedo will switch to the corresponding `tmux`
 session or create it if it does not exist.
 
@@ -36,15 +38,6 @@ You can re-run this command at any time to pick a project. This can be
 bound to a key in your `~/.tmux.conf` for easy access.
 
     bind-key C-f display-popup -E -E "torpedo pick"
-
-You can also provide a path (or paths) to `pick`.
-
-    $ torpedo pick --path ~/personal --path ~/work
-
-The default set of paths can be configured, otherwise it will default to
-`$HOME`.
-
-    TODO
 
 Sometimes, you want to be able to jump to a project faster than is possible
 using `fzf`. In this case, you can use marks.
@@ -113,11 +106,27 @@ path, line and column with the following command.
 A plugin can use this output to jump to a mark by key.
 
 ## Commands
-Commands are programs stored in the `.torpedo/cmd` directory of your project
-that can be run by name via the `run` command. Commands that do not have the
-executable bit set are ignored.
+Commands are programs that are configured in your `.torpedo/config.json`,
+similar to `npm`.
 
-For example, you can put a script at `.torpedo/cmd/test`, set the executable
-bit and run it with the following command.
+For example, you can have the following config
+
+    {
+        "commands": {
+            "test": "go test"
+        }
+    }
+
+Then you can run a command by name.
 
     $ torpedo run test
+
+The commands are run using your `$SHELL` via the -c flag.
+You can also pass additional arguments to the script.
+These will be appended to the command.
+
+    $ torpedo run test ./...
+
+You can pass flags through without parsing them as well after `--`.
+
+    $ torpedo run test -- --help

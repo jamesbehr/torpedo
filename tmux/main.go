@@ -6,66 +6,6 @@ import (
 	"os/exec"
 )
 
-// func DumpLayout(tmux Client) ([]Window, error) {
-// 	cmd := &proto.ListWindows{
-// 		Format: "#{window_index}\t#{window_name}\t#{window_layout}\t#{window_active}\t#{window_panes}\t#{P:#{pane_active}\t#{pane_current_path}\t#{pane_pid}}",
-// 	}
-//
-// 	out, err := tmux.Output(cmd)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-//
-// 	windows := []Window{}
-//
-// 	for _, line := range strings.Split(out, "\n") {
-// 		cells := strings.Split(line, "\t")
-// 		if len(cells) < 5 {
-// 			continue
-// 		}
-//
-// 		window := Window{
-// 			Name:   cells[1],
-// 			Layout: cells[2],
-// 			Active: cells[3] == "1",
-// 		}
-//
-// 		count, err := strconv.ParseUint(cells[4], 10, 32)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("tmux: cannot parse pane count: %w", err)
-// 		}
-//
-// 		cells = cells[5:]
-// 		for i := uint64(0); i < count; i++ {
-// 			if len(cells) < 3 {
-// 				break
-// 			}
-//
-// 			// pid, err := strconv.ParseInt(cells[2], 10, 32)
-// 			// if err != nil {
-// 			// 	return nil, fmt.Errorf("tmux: cannot parse pane pid: %w", err)
-// 			// }
-//
-// 			// TODO: Can use the PID to lookup env, cmd, args etc. from procfs
-//
-// 			window.Panes = append(
-// 				window.Panes,
-// 				Pane{
-// 					// Pwd:    cells[1], // TODO: Some parsing
-// 					Pwd:    "",
-// 					Env:    []string{},
-// 					Cmd:    []string{},
-// 					Active: cells[0] == "1",
-// 				},
-// 			)
-// 		}
-//
-// 		windows = append(windows, window)
-// 	}
-//
-// 	return windows, nil
-// }
-
 func InSession() bool {
 	_, ok := os.LookupEnv("TMUX")
 	return ok

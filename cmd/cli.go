@@ -3,6 +3,7 @@ package cmd
 import (
 	"embed"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ var defaultTemplate embed.FS
 type Context struct {
 	Service          *core.Service
 	Stdout           io.Writer
+	Shell            string
 	WorkingDirectory string
 	Home             string
 	ConfigRoot       string
@@ -67,7 +69,11 @@ func (cmd *InitCmd) Run(ctx *Context) error {
 		return errors.New("projects should not be nested")
 	}
 
-	searchPaths := []string{} // TODO; Defaults
+	searchPaths := []string{
+		"/etc/torpedo/templates",
+		ctx.ConfigFilePath("templates"),
+	}
+
 	if v, ok := os.LookupEnv("TORPEDO_TEMPLATE_PATH"); ok {
 		searchPaths = filepath.SplitList(v)
 	}
@@ -81,7 +87,7 @@ func (cmd *InitCmd) Run(ctx *Context) error {
 }
 
 type PickCmd struct {
-	Paths []string `name:"path" default:"."`
+	Paths []string
 }
 
 func (cmd *PickCmd) Run(ctx *Context) error {
@@ -113,7 +119,7 @@ func (cmd *PickCmd) Run(ctx *Context) error {
 type RunCmd struct {
 	Directory string   `default:"."`
 	Command   string   `arg:""`
-	Args      []string `arg:""`
+	Args      []string `arg:"" optional:""`
 }
 
 func (cmd *RunCmd) Run(ctx *Context) error {
@@ -122,7 +128,17 @@ func (cmd *RunCmd) Run(ctx *Context) error {
 		return err
 	}
 
-	return ctx.Service.RunProjectCommand(projectDir, cmd.Command, cmd.Args)
+	config, err := ctx.Service.ParseProjectConfig(projectDir)
+	if err != nil {
+		return err
+	}
+
+	script, ok := config.Commands[cmd.Command]
+	if !ok {
+		return fmt.Errorf("unknown command %q", cmd.Command)
+	}
+
+	return ctx.Service.RunProjectScript(projectDir, "sh", script, cmd.Args)
 }
 
 type CLI struct {
@@ -136,7 +152,6 @@ type CLI struct {
 var cli CLI
 
 func Execute() {
-	// TODO: kong can read defaults from a configuration
 	ctx := kong.Parse(&cli)
 
 	home := os.Getenv("HOME")
@@ -154,12 +169,18 @@ func Execute() {
 		ctx.Fatalf(err.Error())
 	}
 
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "sh"
+	}
+
 	context := Context{
 		Service:          core.New(),
 		Stdout:           os.Stdout,
 		WorkingDirectory: wd,
 		Home:             home,
 		ConfigRoot:       configHome,
+		Shell:            shell,
 	}
 	ctx.Bind(&context)
 	ctx.FatalIfErrorf(ctx.Run())

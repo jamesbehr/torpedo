@@ -297,21 +297,21 @@ func (svc *Service) ParseProjectConfig(projectPath string) (*Config, error) {
 	return &cfg, nil
 }
 
-func (svc *Service) RunProjectCommand(projectPath string, cmdName string, args []string) error {
-	path := filepath.Join(projectPath, projectDataDir, "cmd", cmdName)
+func (svc *Service) RunProjectScript(projectPath string, shell, script string, args []string) error {
+	// Let the shell do the parameter escaping
+	for i := range args {
+		script += fmt.Sprintf(" \"$%d\"", i+1)
+	}
 
-	cmd := exec.Command(path, args...)
+	shellArgs := []string{"-c", script, "torpedo"}
+	shellArgs = append(shellArgs, args...)
+
+	cmd := exec.Command(shell, shellArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
-	// TODO: Connect signals
-
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-
-	return nil
+	return cmd.Run()
 }
 
 func (svc *Service) SendKeysToProcess(processName string, keys []string) error {
@@ -346,7 +346,8 @@ func (svc *Service) ProjectDataFilePath(projectPath string, filename string) str
 }
 
 type Config struct {
-	Windows []Window `json:"windows"`
+	Commands map[string]string `json:"commands,omitempty"`
+	Windows  []Window          `json:"windows,omitempty"`
 }
 
 type Pane struct {
