@@ -105,7 +105,18 @@ func (cmd *MarksJumpCmd) Run(ctx *Context) error {
 
 	sessionName := ctx.UnexpandPath(projectDir)
 
-	return ctx.Service.AttachProject(sessionName, projectDir, cfg.Windows)
+	exists, err := ctx.Service.HasSession(sessionName)
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		if err := ctx.Service.CreateSession(sessionName, projectDir, cfg.Windows); err != nil {
+			return err
+		}
+	}
+
+	return ctx.Service.AttachSession(sessionName)
 }
 
 type MarksCmd struct {

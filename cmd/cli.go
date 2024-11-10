@@ -113,7 +113,19 @@ func (cmd *PickCmd) Run(ctx *Context) error {
 	}
 
 	sessionName := ctx.UnexpandPath(projectPath)
-	return ctx.Service.AttachProject(sessionName, projectPath, cfg.Windows)
+
+	exists, err := ctx.Service.HasSession(sessionName)
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		if err := ctx.Service.CreateSession(sessionName, projectPath, cfg.Windows); err != nil {
+			return err
+		}
+	}
+
+	return ctx.Service.AttachSession(sessionName)
 }
 
 type RunCmd struct {

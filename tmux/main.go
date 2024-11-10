@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,11 +16,8 @@ type Client struct {
 	// BinaryPath is the path (absolute or relative to $PATH) for the Tmux binary.
 	// If it is empty, it defaults to "tmux"
 	BinaryPath string
-
-	// Session is the target session to execute the commands in.
-	// This overrides the TMUX environment variable when executing the command.
-	// If empty, it uses the value of the TMUX variable from the process's environment
-	Session string
+	SocketPath string
+	Config     string
 }
 
 type Command interface {
@@ -32,26 +30,48 @@ func (c *Client) cmd(args ...string) *exec.Cmd {
 		binaryPath = c.BinaryPath
 	}
 
-	cmd := exec.Command(binaryPath, args...)
-	cmd.Stdin = os.Stdin // allows tmux to detect a terminal
+	combinedArgs := []string{}
 
-	if c.Session != "" {
-		cmd.Env = os.Environ()
-		cmd.Env = append(cmd.Env, fmt.Sprintf("TMUX=%s", c.Session))
+	if c.SocketPath != "" {
+		combinedArgs = append(combinedArgs, "-S", c.SocketPath)
 	}
+
+	if c.Config != "" {
+		combinedArgs = append(combinedArgs, "-f", c.Config)
+	}
+
+	combinedArgs = append(combinedArgs, args...)
+
+	cmd := exec.Command(binaryPath, combinedArgs...)
+	cmd.Stdin = os.Stdin // allows tmux to detect a terminal
 
 	return cmd
 }
 
-func (c *Client) Output(command Command) (string, error) {
+func (c *Client) Success(command Command) (bool, error) {
+	cmd := c.cmd(command.Args()...)
+
+	if err := cmd.Run(); err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("tmux: error running tmux: %w", err)
+	}
+
+	return true, nil
+}
+
+func (c *Client) Output(command Command) ([]byte, error) {
 	cmd := c.cmd(command.Args()...)
 
 	result, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("tmux: error running tmux: %w", err)
+		return nil, fmt.Errorf("tmux: error running tmux: %w", err)
 	}
 
-	return string(result), nil
+	return result, nil
 }
 
 func (c *Client) Run(command Command) error {
@@ -62,14 +82,6 @@ func (c *Client) Run(command Command) error {
 	}
 
 	return nil
-}
-
-func IsExitError(err error) bool {
-	if _, ok := err.(*exec.ExitError); ok {
-		return true
-	}
-
-	return false
 }
 
 type NewSession struct {
@@ -108,10 +120,18 @@ func (opts *NewSession) Args() []string {
 	return args
 }
 
-type HasSession string
+type HasSession struct {
+	SessionName string
+}
 
-func (opts HasSession) Args() []string {
-	return []string{"has-session", "-t", string(opts)}
+func (opts *HasSession) Args() []string {
+	args := []string{"has-session"}
+
+	if opts.SessionName != "" {
+		args = append(args, "-t", opts.SessionName)
+	}
+
+	return args
 }
 
 type AttachSession struct {
@@ -143,10 +163,12 @@ func (opts *SwitchClient) Args() []string {
 }
 
 type NewWindow struct {
+	TargetWindow   string
 	WindowName     string
 	StartDirectory string
 	Environment    []string
 	Command        []string
+	Detached       bool
 }
 
 func (opts *NewWindow) Args() []string {
@@ -155,8 +177,16 @@ func (opts *NewWindow) Args() []string {
 		args = append(args, "-n", opts.WindowName)
 	}
 
+	if opts.Detached {
+		args = append(args, "-d")
+	}
+
 	if opts.StartDirectory != "" {
 		args = append(args, "-c", opts.StartDirectory)
+	}
+
+	if opts.TargetWindow != "" {
+		args = append(args, "-t", opts.TargetWindow)
 	}
 
 	for _, env := range opts.Environment {
@@ -229,13 +259,18 @@ func (opts *SelectWindow) Args() []string {
 }
 
 type ListWindows struct {
-	Format string
+	TargetSession string
+	Format        string
 }
 
 func (opts *ListWindows) Args() []string {
 	args := []string{"list-windows"}
 	if opts.Format != "" {
 		args = append(args, "-F", opts.Format)
+	}
+
+	if opts.TargetSession != "" {
+		args = append(args, "-t", opts.TargetSession)
 	}
 
 	return args
@@ -260,6 +295,7 @@ func (opts *SendKeys) Args() []string {
 
 type ListPanes struct {
 	Session bool
+	Target  string
 	Filter  string
 	Format  string
 }
@@ -271,6 +307,10 @@ func (opts *ListPanes) Args() []string {
 		args = append(args, "-s")
 	}
 
+	if opts.Target != "" {
+		args = append(args, "-t", opts.Target)
+	}
+
 	if opts.Format != "" {
 		args = append(args, "-F", opts.Format)
 	}
@@ -280,6 +320,42 @@ func (opts *ListPanes) Args() []string {
 	}
 
 	return args
+}
+
+type ShowOptions struct {
+	OnlyValue bool
+	Global    bool
+	Name      string
+}
+
+func (opts *ShowOptions) Args() []string {
+	args := []string{"show-options"}
+
+	if opts.OnlyValue {
+		args = append(args, "-v")
+	}
+
+	if opts.Global {
+		args = append(args, "-g")
+	}
+
+	if opts.Name != "" {
+		args = append(args, opts.Name)
+	}
+
+	return args
+}
+
+type StartServer struct{}
+
+func (opts *StartServer) Args() []string {
+	return []string{"start-server"}
+}
+
+type KillServer struct{}
+
+func (opts *KillServer) Args() []string {
+	return []string{"kill-server"}
 }
 
 type Multi []Command

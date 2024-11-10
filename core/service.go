@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -172,21 +174,210 @@ func (svc *Service) FindProjects(paths []string) ([]string, error) {
 	return projects, nil
 }
 
-func (svc *Service) AttachProject(sessionName, projectPath string, windows []Window) error {
-	hasSession := tmux.HasSession(sessionName)
-	if err := svc.tmux.Run(hasSession); err != nil {
-		if !tmux.IsExitError(err) {
-			return err
+func (svc *Service) AttachSession(sessionName string) error {
+	if tmux.InSession() {
+		switchClient := tmux.SwitchClient{
+			SessionName: sessionName,
 		}
-	} else {
-		return nil
+
+		if err := svc.tmux.Run(&switchClient); err != nil {
+			return fmt.Errorf("AttachSession: unable to switch client: %w", err)
+		}
 	}
 
+	attachSession := tmux.AttachSession{
+		SessionName: sessionName,
+	}
+
+	if err := svc.tmux.Run(&attachSession); err != nil {
+		return fmt.Errorf("AttachSession: unable to attach to session: %w", err)
+	}
+
+	return nil
+}
+
+func fields(s string) [][]string {
+	fields := [][]string{}
+	row := []string{}
+	field := ""
+	escaping := false
+
+	for _, r := range s {
+		if escaping {
+			// TODO: Handle escape chars properly
+			field += string(r)
+			escaping = false
+		} else {
+			switch r {
+			case '\n':
+				row = append(row, field)
+				fields = append(fields, row)
+				field = ""
+				row = []string{}
+			case '\r':
+			case '\\':
+				escaping = true
+			case ' ', '\t':
+				row = append(row, field)
+				field = ""
+			default:
+				field += string(r)
+			}
+		}
+	}
+
+	return fields
+}
+
+func parse(row []string, args ...any) error {
+	if len(args) != len(row) {
+		return fmt.Errorf("expected %d fields but got %d", len(args), len(row))
+	}
+
+	for i, arg := range args {
+		s := row[i]
+
+		switch v := arg.(type) {
+		case *bool:
+			b, err := strconv.ParseBool(s)
+			if err != nil {
+				return err
+			}
+
+			*v = b
+		case *int:
+			n, err := strconv.Atoi(s)
+			if err != nil {
+				return err
+			}
+
+			*v = n
+		case *string:
+			*v = s
+		default:
+			return fmt.Errorf("bad argument type %T", arg)
+		}
+	}
+
+	return nil
+}
+
+func parseNullTerminatedList(data []byte) []string {
+	result := []string{}
+
+	for i := 0; i < 10; i++ {
+		idx := bytes.IndexByte(data, 0)
+		if idx < 0 {
+			break
+		}
+
+		result = append(result, string(data[:idx]))
+
+		if idx+1 >= len(data) {
+			break
+		}
+
+		data = data[idx+1:]
+	}
+
+	return result
+}
+
+func (svc *Service) DumpSession(sessionName string) ([]Window, error) {
+	dumpSession := tmux.Multi{
+		&tmux.ListPanes{
+			Session: true,
+			Target:  sessionName,
+			Format:  "pane #{window_id} #{pane_start_path} #{pane_active} #{pane_pid}",
+		},
+		&tmux.ListWindows{
+			TargetSession: sessionName,
+			Format:        "window #{window_id} #{window_name} #{window_active} #{window_layout}",
+		},
+	}
+
+	output, err := svc.tmux.Output(dumpSession)
+	if err != nil {
+		return nil, fmt.Errorf("DumpSession: %w", err)
+	}
+
+	panes := map[string][]Pane{}
+	windows := []Window{}
+
+	env := os.Environ()
+
+	for _, row := range fields(string(output)) {
+		if len(row) == 0 {
+			continue
+		}
+
+		switch row[0] {
+		case "pane":
+			var pane Pane
+			var id, pid string
+			if err := parse(row[1:], &id, &pane.Pwd, &pane.Active, &pid); err != nil {
+				return nil, fmt.Errorf("DumpSession: %w", err)
+			}
+
+			cmdline, err := os.ReadFile(filepath.Join("/proc", pid, "cmdline"))
+			if err != nil {
+				return nil, fmt.Errorf("DumpSession: unable to read cmdline args: %w", err)
+			}
+
+			pane.Cmd = parseNullTerminatedList(cmdline)
+
+			environ, err := os.ReadFile(filepath.Join("/proc", pid, "environ"))
+			if err != nil {
+				return nil, fmt.Errorf("DumpSession: unable to read environment variables: %w", err)
+			}
+
+			pane.Env = []string{}
+			for _, v := range parseNullTerminatedList(environ) {
+				if strings.HasPrefix(v, "TMUX=") || slices.Contains(env, v) {
+					continue
+				}
+
+				pane.Env = append(pane.Env, v)
+			}
+
+			panes[id] = append(panes[id], pane)
+		case "window":
+			var window Window
+			var id string
+			if err := parse(row[1:], &id, &window.Name, &window.Active, &window.Layout); err != nil {
+				return nil, fmt.Errorf("DumpSession: %w", err)
+			}
+
+			window.Panes = panes[id]
+			windows = append(windows, window)
+		default:
+			continue
+		}
+	}
+
+	return windows, nil
+}
+
+func (svc *Service) HasSession(sessionName string) (bool, error) {
+	hasSession := tmux.HasSession{
+		SessionName: sessionName,
+	}
+
+	ok, err := svc.tmux.Success(&hasSession)
+	if err != nil {
+		return false, fmt.Errorf("HasSession: %w", err)
+	}
+
+	return ok, err
+}
+
+func (svc *Service) CreateSession(sessionName, projectPath string, windows []Window) error {
 	cmds := []tmux.Command{}
 
 	newSession := tmux.NewSession{
-		SessionName: sessionName,
-		Detached:    true,
+		SessionName:    sessionName,
+		StartDirectory: projectPath,
+		Detached:       true,
 	}
 
 	cmds = append(cmds, &newSession)
@@ -201,14 +392,16 @@ func (svc *Service) AttachProject(sessionName, projectPath string, windows []Win
 		}
 
 		if wi == 0 {
+			newSession.WindowName = window.Name
+
 			for pi, pane := range window.Panes {
 				if pi == 0 {
-					newSession.StartDirectory = projectPath
+					newSession.StartDirectory = pane.StartDirectory(projectPath)
 					newSession.Environment = pane.Env
 					newSession.Command = pane.Cmd
 				} else {
 					cmds = append(cmds, &tmux.SplitWindow{
-						StartDirectory: projectPath,
+						StartDirectory: pane.StartDirectory(projectPath),
 						Environment:    pane.Env,
 						Command:        pane.Cmd,
 					})
@@ -220,19 +413,20 @@ func (svc *Service) AttachProject(sessionName, projectPath string, windows []Win
 			}
 		} else {
 			newWindow := tmux.NewWindow{
-				WindowName: window.Name,
+				WindowName:   window.Name,
+				TargetWindow: fmt.Sprintf("%s:", sessionName),
 			}
 
 			cmds = append(cmds, &newWindow)
 
 			for pi, pane := range window.Panes {
 				if pi == 0 {
-					newWindow.StartDirectory = projectPath
+					newWindow.StartDirectory = pane.StartDirectory(projectPath)
 					newWindow.Environment = pane.Env
 					newWindow.Command = pane.Cmd
 				} else {
 					cmds = append(cmds, &tmux.SplitWindow{
-						StartDirectory: projectPath,
+						StartDirectory: pane.StartDirectory(projectPath),
 						Environment:    pane.Env,
 						Command:        pane.Cmd,
 					})
@@ -264,22 +458,10 @@ func (svc *Service) AttachProject(sessionName, projectPath string, windows []Win
 	}
 
 	if err := svc.tmux.Run(tmux.Multi(cmds)); err != nil {
-		return err
+		return fmt.Errorf("CreateSession: unable to create session: %w", err)
 	}
 
-	if tmux.InSession() {
-		switchClient := tmux.SwitchClient{
-			SessionName: sessionName,
-		}
-
-		return svc.tmux.Run(&switchClient)
-	}
-
-	attachSession := tmux.AttachSession{
-		SessionName: sessionName,
-	}
-
-	return svc.tmux.Run(&attachSession)
+	return nil
 }
 
 func (svc *Service) ParseProjectConfig(projectPath string) (*Config, error) {
@@ -314,33 +496,6 @@ func (svc *Service) RunProjectScript(projectPath string, shell, script string, a
 	return cmd.Run()
 }
 
-func (svc *Service) SendKeysToProcess(processName string, keys []string) error {
-	listPanes := tmux.ListPanes{
-		Session: true,
-		Filter:  fmt.Sprintf("#{==:#{pane_current_command},%s}", processName),
-		Format:  "#{pane_id}",
-	}
-
-	output, err := svc.tmux.Output(&listPanes)
-	if err != nil {
-		return err
-	}
-
-	panes := strings.Split(output, "\n")
-	if len(panes) == 0 {
-		return fmt.Errorf("could not find process %q in current Tmux session", processName)
-	}
-
-	paneId := panes[0]
-
-	sendKeys := tmux.SendKeys{
-		TargetPane: paneId,
-		Keys:       keys,
-	}
-
-	return svc.tmux.Run(&sendKeys)
-}
-
 func (svc *Service) ProjectDataFilePath(projectPath string, filename string) string {
 	return filepath.Join(projectPath, projectDataDir, filename)
 }
@@ -355,6 +510,14 @@ type Pane struct {
 	Env    []string `json:"env,omitempty"`
 	Cmd    []string `json:"cmd,omitempty"`
 	Active bool     `json:"active,omitempty"`
+}
+
+func (p *Pane) StartDirectory(projectDir string) string {
+	if filepath.IsLocal(p.Pwd) {
+		return filepath.Join(projectDir, p.Pwd)
+	}
+
+	return projectDir
 }
 
 type Window struct {

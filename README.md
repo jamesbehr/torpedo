@@ -130,3 +130,85 @@ These will be appended to the command.
 You can pass flags through without parsing them as well after `--`.
 
     $ torpedo run test -- --help
+
+## Layouts
+Torpedo can restore Tmux layouts using a setup in `.torpedo/config.json`.
+
+For example given the following config
+
+    {
+        "windows": [
+            {
+                "name": "editor",
+                "active": true,
+                "panes": [
+                    {
+                        "cmd": ["nvim"]
+                    }
+                ]
+            },
+            {
+                "name": "shell"
+            },
+            {
+                "name": "manual",
+                "layout": "tiled",
+                "panes": [
+                    {
+                        "cmd": ["man", "tmux"]
+                    },
+                    {
+                        "cmd": ["man", "nvim"]
+                    }
+                ]
+            }
+        ]
+    }
+
+When a new session is started for the project, it will create 3 windows.
+- The first one, called `editor`, is the active window and runs `nvim`
+- The second one, is an empty window called `shell`
+- The third one has two panes in the `tiled` layout.
+    - One runs `man tmux`
+    - One runs `man nvim`
+
+Windows is an array of window objects which have the following fields.
+All the fields are optional
+
+| Field    | Description                            |
+|----------|----------------------------------------|
+| `name`   | The name of the window.                |
+| `layout` | A tmux layout string.                  |
+| `panes`  | An array of panes in the window.       |
+| `active` | Whether the window is selected or not. |
+
+The Tmux layout string can be one of the predefined layout strings (see `man tmux`):
+`even-horizontal`, `even-vertical`, `main-horizontal`,
+`main-horizontal-mirrored`, `main-vertical`, `main-vertical`, or `tiled`.
+Or it can be a layout string as printed by `list-windows`
+
+    $ tmux list-windows
+    1: nvim- (1 panes) [210x56] [layout c4dd,210x56,0,0,0] @0
+    2: zsh* (1 panes) [210x56] [layout c4df,210x56,0,0,2] @2 (active)
+
+The layout string `c4dd,210x56,0,0,0` defines a single pane 210 colums by 56
+rows.
+
+Panes are an array of pane objects with the following fields.
+All the fields are optional
+
+| Field    | Description                                       |
+|----------|---------------------------------------------------|
+| `pwd`    | The working directory relative to the project.    |
+| `env`    | A list of environment variables.                  |
+| `cmd`    | The command to execute, as an array of arguments. |
+| `active` | Whether the pane is selected or not.              |
+
+`env` is a list of environment variables as `KEY=VALUE` pairs.
+
+If `active` is set multiple times in a given array, the last window or pane in
+that array with `active` set becomes the active one.
+If no window or pane is marked active, the last one in the array becomes
+active.
+
+If `pwd` is not a subdirectory of the project, it is ignored.
